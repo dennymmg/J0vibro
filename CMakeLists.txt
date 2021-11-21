@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
-PROJECT(Vibro)
+PROJECT(Bscan)
 
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake_modules/")
 
@@ -10,6 +10,17 @@ include_directories($(USB_1_INCLUDE_DIR))
 include_directories($(OpenCV_INCLUDE_DIR))
 include_directories(/usr/include/spinnaker)
 
-add_executable(J0vibro J0vibro.cpp FDOCT.cpp)
-target_link_libraries(J0vibro ${LIBUSB_1_LIBRARIES} -lSpinnaker -lpthread ${OpenCV_LIBS})
+add_executable(FFTSubtract FFTSubtract.cpp FDOCT.cpp)
+target_link_libraries(FFTSubtract ${LIBUSB_1_LIBRARIES} -lSpinnaker -lpthread ${OpenCV_LIBS})
 
+add_executable(J0FFTSubtract J0FFTSubtract.cpp FDOCT.cpp)
+target_link_libraries(J0FFTSubtract ${LIBUSB_1_LIBRARIES} -lSpinnaker -lpthread ${OpenCV_LIBS})
+
+add_executable(J0RawSubtract J0RawSubtract.cpp FDOCT.cpp)
+target_link_libraries(J0RawSubtract ${LIBUSB_1_LIBRARIES} -lSpinnaker -lpthread ${OpenCV_LIBS})
+
+add_executable(J0earVibro J0earvibro.cpp FDOCT.cpp)
+target_link_libraries(J0earVibro ${LIBUSB_1_LIBRARIES} -lSpinnaker -lpthread ${OpenCV_LIBS})
+
+add_executable(vibro vibro.cpp FDOCT.cpp)
+target_link_libraries(vibro ${LIBUSB_1_LIBRARIES} -lSpinnaker -lpthread ${OpenCV_LIBS})
