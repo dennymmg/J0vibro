@@ -36,9 +36,7 @@ void FDOCT::initialCompute()
 	data_y = Mat(height, width, CV_64F);	// the Mat constructor Mat(rows,columns,type);
 	barthannwin	= Mat(1, width, CV_64F);
 	
-	numfftpoints = fftpointsmultiplier * width;  
-
-	double deltalambda = (lambdamax - lambdamin) / data_y.cols;
+	double deltalambda = (lambdamax - lambdamin) / width;
 	
 	// create modified Bartlett-Hann window
 	for (unsigned int p = 0; p<(width); p++)
@@ -49,34 +47,34 @@ void FDOCT::initialCompute()
 		barthannwin.at<double>(0, p) = 0.62 - 0.48*abs(nn / NN - 0.5) + 0.38*cos(2 * pi*(nn / NN - 0.5));
 	}
 
-	Mat klinear = Mat::zeros(cv::Size(1, numfftpoints), CV_64F);
-	fractionalk = Mat::zeros(cv::Size(1, numfftpoints), CV_64F);
-	nearestkindex = Mat::zeros(cv::Size(1, numfftpoints), CV_32S);
+	Mat klinear = Mat::zeros(cv::Size(1, width), CV_64F);
+	fractionalk = Mat::zeros(cv::Size(1, width), CV_64F);
+	nearestkindex = Mat::zeros(cv::Size(1, width), CV_32S);
 	
-	Mat lambdas = Mat::zeros(cv::Size(1, numfftpoints), CV_64F);		//Size(cols,rows)
-	Mat diffk = Mat::zeros(cv::Size(1, numfftpoints), CV_64F);
+	Mat lambdas = Mat::zeros(cv::Size(1, width), CV_64F);		//Size(cols,rows)
+	Mat diffk = Mat::zeros(cv::Size(1, width), CV_64F);
 
 	unsigned int indextemp;
 
 	// compute lambdas
-	for (indextemp = 0; indextemp< (data_y.cols); indextemp++)
+	for (indextemp = 0; indextemp< (width); indextemp++)
 	{
-		lambdas.at<double>(0, indextemp) = lambdamin + indextemp * deltalambda / fftpointsmultiplier;
+		lambdas.at<double>(0, indextemp) = lambdamin + indextemp * deltalambda;
 	}
 
 	Mat k = 2 * pi / lambdas;
 	double kmin = 2 * pi / (lambdamax - deltalambda);
 	double kmax = 2 * pi / lambdamin;
-	double deltak = (kmax - kmin) / numfftpoints;
+	double deltak = (kmax - kmin) / width;
 
 	// compute klinear
-	for (indextemp = 0; indextemp < numfftpoints; indextemp++)
+	for (indextemp = 0; indextemp < width; indextemp++)
 	{
 		klinear.at<double>(0, indextemp) = kmin + (indextemp + 1)*deltak;
 	}
 
 	// find the diff of the non-linear ks
-	for (indextemp = 1; indextemp < numfftpoints; indextemp++)
+	for (indextemp = 1; indextemp < width; indextemp++)
 	{
 		// since this is a decreasing series, RHS is (i-1) - (i)
 		diffk.at<double>(0, indextemp) = k.at<double>(0, indextemp - 1) - k.at<double>(0, indextemp);
@@ -85,9 +83,9 @@ void FDOCT::initialCompute()
 	diffk.at<double>(0, 0) = diffk.at<double>(0, 1);
 
 	// find the index of the nearest k value, less than the linear k
-	for (int f = 0; f < numfftpoints; f++)
+	for (int f = 0; f < width; f++)
 	{
-		for (indextemp = 0; indextemp < numfftpoints; indextemp++)
+		for (indextemp = 0; indextemp < width; indextemp++)
 		{
 			if (k.at<double>(0, indextemp) < klinear.at<double>(0, f))
 			{
@@ -98,7 +96,7 @@ void FDOCT::initialCompute()
 	}// end f loop
 
 	// now find the fractional amount by which the linearized k value is greater than the next lowest k
-	for (int f = 0; f < numfftpoints; f++)
+	for (int f = 0; f < width; f++)
 	{
 		fractionalk.at<double>(0, f) = (klinear.at<double>(0, f) - k.at<double>(0, nearestkindex.at<int>(0, f))) / diffk.at<double>(0, nearestkindex.at<int>(0, f));
 	}
@@ -114,7 +112,7 @@ void FDOCT::dividebySpectrum(Mat spectrum)
 {
 	Mat spectrum_64F;
 	spectrum.convertTo(spectrum_64F, CV_64F);
-	data_y = data_y / spectrum_64F; 
+	//data_y = data_y / spectrum_64F; 
 }
 
 Mat FDOCT::computeBscan()
@@ -124,17 +122,12 @@ Mat FDOCT::computeBscan()
 	{
 		Scalar meanval = mean(data_y.row(p));
 		data_y.row(p) = data_y.row(p) - meanval(0);	// Only the first value of the scalar is useful for us
-		
-		//multiply(data_yb.row(p), 1.0/sqrt((meanval(0))), data_yb.row(p));
+        // uncomment the line below to use Bartlett-Hann window; commment for no windowing
 		multiply(data_y.row(p), barthannwin, data_y.row(p));
 	}
 
-	//increasing number of points by zero padding
-	if (fftpointsmultiplier > 1)
-		data_y = zeropadrowwise(data_y, fftpointsmultiplier);
-
-	Mat data_ylin(height, numfftpoints, CV_64F);
-	Mat slopes = Mat::zeros(cv::Size(data_y.rows, numfftpoints), CV_64F);
+	Mat data_ylin(height, width, CV_64F);
+	Mat slopes = Mat::zeros(cv::Size(data_y.rows, width), CV_64F);
 
 	// interpolate to linear k space
 	for (int p = 0; p<(data_y.rows); p++)

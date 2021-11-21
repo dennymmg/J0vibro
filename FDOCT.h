@@ -26,7 +26,6 @@ cv::Mat bscan;
 unsigned int fftpointsmultiplier;
 unsigned int numdisplaypoints;
 
-unsigned int numfftpoints;
 cv::Mat barthannwin;
 cv::Mat fractionalk;
 cv::Mat nearestkindex;
