@@ -8,9 +8,6 @@ the keys and their purposes are given below
 3 - decrements the number of averages by 1 in Average mode
 ] - increases threshold for display
 [ - decreases threshold for display
-f - increases the Fudge factor by 0.005
-g - decreases the fudGe factor by 0.005
-s - Saves the current Bscan to disk
 '+' - increases exposure time by 100 microseconds
 '-' - decreases exposure time by 100 microseconds
 'a' - to enter accumulate mode
@@ -25,11 +22,8 @@ Press 'r' to change size of ROI using arrow keys
 Press 't' to go back to changing position of ROI
 Press 'p' to display ROI stats for X1+X2
 Press 'm' to display ROI stats for X2-X1
+Press 'v' to display ROI stats for vibration in nanometers
 
-*/
-
-/*
-// Date: November 2021
 
 // Protocol for vibration detection
 // Camera runs in non-triggered mode
@@ -56,6 +50,7 @@ For lambdacentre = 852.5 nm, deltalambda = 20.9 nm
 		  = 2.405 * 852.5 / (4*pi) nm
 		  = 163 nm is the vibration amplitude correpsonding to J0 Null
 
+For Vbias = 5.0 V and J0-Null voltage = 7.2 V, A ~ 50,000 pm
 Vibration amplitude, V = (X1-X2)/(X1+X2) * A
 
 */
@@ -100,8 +95,9 @@ int main()
 	double minval, maxval, minvalsum, maxvalsum, meanvalsum, minvaldiff, maxvaldiff, meanvaldiff, bscanthreshold = 72.0;
 	int dt, key;
 	double fps = 0.0, framecount = 0.0;
-	double Vmax = 0.0, Vmean = 0.0, A = 0.0; // vibration amplitude
-	A = 163.1 ; // vibration amplitude in nm coresponding to J0 Null for lambda = 852.5 nm
+	double Vmax = 0.0, Vmean = 0.0, A = 0.0, Vmin; // vibration amplitude
+	// For Vbias = 5.0 V and J0-Null voltage = 7.2 V, A ~ 50,000 pm
+	A = 50000;
 	system("clear");
 	// Print application build information
 	cout << "Application build date: " << __DATE__ << " " << __TIME__ << endl << endl;
@@ -279,21 +275,21 @@ int main()
 		time_start = 1000000 * tv.tv_sec + tv.tv_usec;	
 		
 		Mat m, opm, Sk, bscantemp, mvector, bvector, bscanlive, bscanlivebg;
-		Mat data_y, data_yb;
+		Mat data_y, data_yb, data_yI, data_yO;
 		Mat B, X1, X2, x1, x2;
 		X1 = Mat::zeros(Size(numdisplaypoints, oph), CV_64F);			// Size(cols,rows)
 		X2 = Mat::zeros(Size(numdisplaypoints, oph), CV_64F);
 		Sk = Mat::ones(Size(opw,oph),CV_16UC1);
 		Mat jdiff, positivediff, bscanlog, bscandb, tempmat1, bscandisp, tempmat2;
 		Mat cmagI_X, cmagI_Xvib, cmagI_Xsum;
-		Mat ROI, tempmatsum, tempmatdiff;	
+		Mat ROI, tempmatsum, tempmatdiff, tempmatvib;	
 		// ROI parameters
 		Point ROItopleft(ROIstartcol,ROIstartrow), ROIbottright(ROIendcol,ROIendrow);
 		enum ROIoption{position=1,size};
 		enum displayROI{plus=1,minus, vib};
 		int selectedROIoption, displayROI;
 		selectedROIoption = position;
-		displayROI = minus; // display ROI stats for X1-X2
+		displayROI = vib; // display ROI stats for vib. amp.
 	
 		resizeWindow("X1+X2", oph, numdisplaypoints);		// (width,height)
 		resizeWindow("Live", oph, numdisplaypoints);		// (width,height)
@@ -369,11 +365,6 @@ int main()
 						else
 						{
 							ret = 1;
-							convertedImage = pResultImage;
-							m = Mat(h, w, CV_16UC1, convertedImage->GetData(), convertedImage->GetStride());
-							// binning (averaging)
-							resize(m, opm, Size(), 1.0 / binvaluex, 1.0 / binvaluey, INTER_AREA);
-							opm.convertTo(data_yb, CV_64F);
 						}
 					}
 
@@ -383,13 +374,9 @@ int main()
 					// these backgeound images are discarded
 
 				} // end of for loop ii <= averagescount
-
-
 				bgframestaken = true;				
 			} // end of if(bgframestaken == false)
 			
-			//cout << " Line 391" << endl;
-
 			for(ii = 1; ii <= averagescount; ii++)
 			{			
 				// write 'I' to Arduino - I for in phase
@@ -398,33 +385,36 @@ int main()
 				// compute bscan and accumulate to Mat X1
 				ret = 0;
 				// save one image to Mat m
-				// time out for image acquisition - 5 seconds
+				// time out for image acquisition
 				gettimeofday(&tv,NULL);
-				tic = tv.tv_sec;	
+				tic = tv.tv_usec + tv.tv_sec * 1000000;	
 				while(ret == 0)
 				{
 					pResultImage = pCam->GetNextImage();
 					if (pResultImage->IsIncomplete())
 					{   
-						cout << " Getting image I" << endl; 
-						gettimeofday(&tv,NULL);
-						toc = tv.tv_sec;	
-						if( (toc-tic) >= 5 && (toc-tic) <= 6)
-						{
-							//write(fd, "I", sizeof("I"));
-							cout << "Sent \'I\' to Arduino" << endl;
-						}
 						ret = 0;
+						//cout << " Getting image I" << endl; 
 					}
 					else
 					{
-						//cout << " Got image I" << endl; 
+						gettimeofday(&tv,NULL);
+						toc = tv.tv_usec + tv.tv_sec * 1000000;	
+						if( (toc-tic) >= 40000 ) // 30 ms 
+						{
+							//cout << "Stuck ... using image from prev iter " << endl;
+							data_yI.copyTo(data_y);
+						}
+						else
+						{	
+							convertedImage = pResultImage;
+							m = Mat(h, w, CV_16UC1, convertedImage->GetData(), convertedImage->GetStride());
+							// binning (averaging)
+							resize(m, opm, Size(), 1.0 / binvaluex, 1.0 / binvaluey, INTER_AREA);
+							opm.convertTo(data_y, CV_64F);
+							data_y.copyTo(data_yI);
+						}
 						ret = 1;
-						convertedImage = pResultImage;
-						m = Mat(h, w, CV_16UC1, convertedImage->GetData(), convertedImage->GetStride());
-						// binning (averaging)
-						resize(m, opm, Size(), 1.0 / binvaluex, 1.0 / binvaluey, INTER_AREA);
-						opm.convertTo(data_y, CV_64F);
 					}
 				}
 
@@ -452,39 +442,43 @@ int main()
 			
 				ret = 0;
 				// save one image to Mat m
-				// time out for image acquisition - 5 seconds
+				// time out for image acquisition 
 				gettimeofday(&tv,NULL);
-				tic = tv.tv_sec;	
+				tic = tv.tv_usec + tv.tv_sec * 1000000;	
 				while(ret == 0)
 				{
 					pResultImage = pCam->GetNextImage();
 					if (pResultImage->IsIncomplete())
 					{
-						cout << " Getting image O" << endl; 
-						gettimeofday(&tv,NULL);
-						toc = tv.tv_sec;	
-						if( (toc - tic) >= 5 && (toc-tic) <= 6)
-						{
-							//write(fd, "O", sizeof("O"));
-							cout << "Sent \'O\' to Arduino" << endl;
-						}
 						ret = 0;
+						//cout << " Getting image O" << endl; 
 					}
 					else
 					{
-						//cout << " Got image O" << endl; 
+						gettimeofday(&tv,NULL);
+						toc = tv.tv_usec + tv.tv_sec * 1000000;	
+						if( (toc-tic) >= 40000 ) // 30 ms 
+						{
+							//cout << "Stuck ... using image from prev iter " << endl;
+							data_yO.copyTo(data_y);
+						}
+						else
+						{
+							convertedImage = pResultImage;
+							m = Mat(h, w, CV_16UC1, convertedImage->GetData(), convertedImage->GetStride());
+							// binning (averaging)
+							resize(m, opm, Size(), 1.0 / binvaluex , 1.0 / binvaluey, INTER_AREA);
+							opm.convertTo(data_y, CV_64F);
+							data_y.copyTo(data_yO);
+						}
 						ret = 1;
-						convertedImage = pResultImage;
-						m = Mat(h, w, CV_16UC1, convertedImage->GetData(), convertedImage->GetStride());
-						// binning (averaging)
-						resize(m, opm, Size(), 1.0 / binvaluex , 1.0 / binvaluey, INTER_AREA);
-						opm.convertTo(data_y, CV_64F);
 					}
 				}
 
 				// pResultImage has to be released to avoid buffer filling up
 				pResultImage->Release();
 
+				tcflush(fd, TCIFLUSH);
 				imshow("Interferogram", opm);
 
 				if(ret == 1)
@@ -519,7 +513,7 @@ int main()
 				tempmat1.copyTo(tempmat2);
 			}
 			tempmat2.copyTo(bscandisp);
-			bscandisp = max(bscandisp, bscanthreshold);
+			//bscandisp = max(bscandisp, bscanthreshold);
 			normalize(bscandisp, bscandisp, 0, 1, NORM_MINMAX);	// normalize the log plot for display
 			bscandisp.convertTo(bscandisp, CV_8UC1, 255.0);
 			applyColorMap(bscandisp, cmagI_X, COLORMAP_JET);
@@ -544,7 +538,7 @@ int main()
 				tempmat1.copyTo(tempmatsum);
 			}
 			tempmatsum.copyTo(bscandisp);
-			bscandisp = max(bscandisp, bscanthreshold);
+			//bscandisp = max(bscandisp, bscanthreshold);
 			normalize(bscandisp, bscandisp, 0, 1, NORM_MINMAX);	// normalize the log plot for display
 			bscandisp.convertTo(bscandisp, CV_8UC1, 255.0);
 			applyColorMap(bscandisp, cmagI_Xsum, COLORMAP_JET);
@@ -570,10 +564,10 @@ int main()
 			{
 				tempmat1.copyTo(tempmatdiff);
 			}
-			tempmatdiff.copyTo(bscandisp);
 			tempmatsum = max(tempmatsum, 10000);
-			//bscandisp = max(bscandisp, bscanthreshold);
-			bscandisp = tempmatdiff / tempmatsum;
+			tempmatvib = tempmatdiff / tempmatsum * A;
+			tempmatvib.copyTo(bscandisp);
+			bscandisp = max(bscandisp, bscanthreshold);
 			normalize(bscandisp, bscandisp, 0, 1, NORM_MINMAX);	// normalize the log plot for display
 			bscandisp.convertTo(bscandisp, CV_8UC1, 255.0);
 			applyColorMap(bscandisp, cmagI_Xvib, COLORMAP_JET);
@@ -607,6 +601,34 @@ int main()
 				savematasimage(pathname, dirname, filenamec, cmagI_Xvib);
 			}
 
+			if (skeypressed == true)
+			{
+				if(dir_created == false)
+				{
+					// create a directory with time stamp
+					struct tm *timenow;
+					time_t now = time(NULL);
+					timenow = localtime(&now);
+					strftime(dirname, sizeof(dirname), "%Y-%m-%d_%H_%M_%S-", timenow);
+					strcat(dirname, dirdescr);
+					mkdir(dirname, 0755);
+					strcpy(pathname, dirname);
+					strcat(pathname, "/");
+					dir_created = true;
+				}
+				indexi++;
+				sprintf(filename, "vib%03d", indexi);
+				savematasbin(pathname, dirname, filename, tempmatvib);
+				savematasimage(pathname, dirname, filename, tempmatvib);
+				sprintf(filenamec, "live%03d", indexi);
+				savematasimage(pathname, dirname, filenamec, cmagI_X);
+				sprintf(filenamec, "vibc%03d", indexi);
+				savematasimage(pathname, dirname, filenamec, cmagI_Xvib);
+				sprintf(filenamec, "stats%03d", indexi);
+				savematasimage(pathname, dirname, filenamec, statusimg);
+
+				skeypressed = false;
+			}			
 			if(accummode == false)
 			{
 				X1 = Mat::zeros(Size(numdisplaypoints, oph), CV_64F);
@@ -618,7 +640,7 @@ int main()
 			// update the image windows
 			dt = time_end - time_start;
 
-			if(dt > 1000000) // 1 second in microseconds 
+			if(dt > 500000) // 0.5 second in microseconds 
 			{
 				m.copyTo(mvector);
 				mvector.reshape(0, 1);	//make it into a row array
@@ -657,6 +679,12 @@ int main()
 						ROI.reshape(0, 1);	//make it into a row array
 						minMaxLoc(ROI, &minvalsum, &maxvalsum);
 						meanvalsum = mean(ROI)(0);
+
+						tempmatvib(Rect(ROIstartcol,ROIstartrow,widthROI,heightROI)).copyTo(ROI);
+						ROI.reshape(0, 1);	//make it into a row array
+						minMaxLoc(ROI, &Vmin, &Vmax);
+						Vmean = mean(ROI)(0);
+
 					}
 					else if(heightROI == 0 && widthROI == 0) // single pixel
 					{
@@ -666,8 +694,6 @@ int main()
 						maxvalsum = tempmatsum.at<double>(ROIcentrex,ROIcentrey);
 						meanvalsum = tempmatsum.at<double>(ROIcentrex,ROIcentrey);
 				    }
-					Vmax = maxvaldiff / maxvalsum * A;
-					Vmean = meanvaldiff / meanvalsum * A;
 					if(selectedROIoption == position)
 					{
 						if(displayROI == plus)
@@ -675,7 +701,7 @@ int main()
 						if(displayROI == minus)
 							sprintf(textbuffer, "r 4size; '-': mx=%d Av=%d", int(round(maxvaldiff)), int(round(meanvaldiff)));
 						if(displayROI == vib)
-							sprintf(textbuffer, "r 4size; Vmax=%dnm Vmean=%dnm", int(round(Vmax)),int(round(Vmean)));
+							sprintf(textbuffer, "r 4size; 'v': mx=%d Av=%d", int(round(Vmax)),int(round(Vmean)));
 					}
 					
 					if(selectedROIoption == size)
@@ -685,7 +711,7 @@ int main()
 						if(displayROI == minus)
 							sprintf(textbuffer, "t 4pos; '-': mx=%d Av=%d", int(round(maxvaldiff)), int(round(meanvaldiff)));
 						if(displayROI == vib)
-							sprintf(textbuffer, "t 4pos; Vmax=%dnm Vmean=%dnm", int(round(Vmax)),int(round(Vmean)));
+							sprintf(textbuffer, "t 4pos; 'v': mx=%d Av=%d", int(round(Vmax)),int(round(Vmean)));
 					}
 				}
 				else
@@ -716,13 +742,16 @@ int main()
 				break;
 			
 			case '+':
+				camtime = camtime + 1;
+				expchanged = true;
+				break;
+
 			case '=':
 				camtime = camtime + 100;
 				expchanged = true;
 				break;
 
 			case '-':
-			case '_':
 				if (camtime < 8)	// spinnaker has a min of 8 microsec
 				{
 					camtime = 8;
@@ -732,9 +761,20 @@ int main()
 				expchanged = true;
 				break;
 		
+			case '_':
+				if (camtime < 8)	// spinnaker has a min of 8 microsec
+				{
+					camtime = 8;
+					break;
+				}
+				camtime = camtime - 1;
+				expchanged = true;
+				break;
+		
 			case ']':
 				//bscanthreshold += 3;  // for log scale
-				bscanthreshold += 200;  // for linear scale
+				//bscanthreshold += 200;  // for linear scale
+				bscanthreshold += 20;  // for vib profile
 				sprintf(textbuffer, "Threshold = %3.1f", bscanthreshold);
 				thirdrowofstatusimg = Mat::zeros(cv::Size(600, 50), CV_64F);
 				putText(statusimg, textbuffer, Point(0, 130), FONT_HERSHEY_SIMPLEX, 1, Scalar(255, 255, 255), 3, 1);
@@ -743,7 +783,8 @@ int main()
 
 			case '[':
 				//bscanthreshold -= 3;  // for log scale
-				bscanthreshold -= 200;  // for linear scale
+				//bscanthreshold -= 200;  // for linear scale
+				bscanthreshold -= 20;  // for vib profile
 				sprintf(textbuffer, "Threshold = %3.1f", bscanthreshold);
 				thirdrowofstatusimg = Mat::zeros(cv::Size(600, 50), CV_64F);
 				putText(statusimg, textbuffer, Point(0, 130), FONT_HERSHEY_SIMPLEX, 1, Scalar(255, 255, 255), 3, 1);
@@ -772,8 +813,8 @@ int main()
 				break;
 
 			case 's':			
-				// save bscan			
-				//skeypressed = true;  disabling this save option, use spacebar(toggle) option instead !
+				// save vibrational profile of bscan			
+				skeypressed = true;
 				break;
 
 			case 'b':
