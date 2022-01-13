@@ -1,7 +1,6 @@
 /*
-
 Author: Denny
-		November 2021
+		January 2022
 
 the keys and their purposes are given below   
 4 - increments the number of averages by 1 in Average mode
@@ -10,9 +9,9 @@ the keys and their purposes are given below
 [ - decreases threshold for display
 '+' - increases exposure time by 100 microseconds
 '-' - decreases exposure time by 100 microseconds
-'a' - to enter accumulate mode
-'l' - to enter live mode
-' ' - spacebar - toggle key for saveframe mode (Live, X1+X2, X2-X1)
+'a' - enter accumulate mode
+'l' - enter live mode
+'s' - saves live bscan, vibrational profile and stats
 Esc or x - quits the program
 
 i - to display ROI
@@ -25,33 +24,27 @@ Press 'm' to display ROI stats for X2-X1
 Press 'v' to display ROI stats for vibration in nanometers
 
 
-// Protocol for vibration detection
-// Camera runs in non-triggered mode
-// Speaker always on
-// Piezo always on with amplitude V (such that m_bias is between 0 and 2.303), say V = 4.0
-
-// step 1: N frames are taken -- bscans computed and averaged to X1
-// step 2: Program sends a char 'P' (phase shift signal) to the Arduino
-// step 3: Arduino receives P and sends HIGH through pin10 (Port B2)
-// step 4: High on Pin 10 causes the phase shift of 180
-// step 5: the program discards the next frame from the camera
-// step 6: 5 frames are taken -- bscans computed and averaged to X2
-// step 7: displays X2 - X1
-// step 8: go back to step1
+Protocol for vibration detection
+Camera runs in triggered mode
+Speaker always on but driven by function generator that performs phase inversion on atlernate frames
+Piezo always on with amplitude V (such that m_bias is between 0 and 2.303), say V = 5.0
 
 Calculation of vibration amplitude
-
 For lambdacentre = 852.5 nm, deltalambda = 20.9 nm
-
 	First zero of J0(x) occurs at x = M = 2.405
 		2 * k * A = M
 	==> 2 * 2*pi/lambdac * A = 2.405 
 	==> A = 2.405 * lambdac / (4*pi)
 		  = 2.405 * 852.5 / (4*pi) nm
-		  = 163 nm is the vibration amplitude correpsonding to J0 Null
+		  = 163 nm is the amplitude correpsonding to J0 Null
 
-For Vbias = 5.0 V and J0-Null voltage = 7.2 V, A ~ 50,000 pm
-Vibration amplitude, V = (X1-X2)/(X1+X2) * A
+J0-Null voltage = 7.2 V corresponds to A2 = 163 nm
+Asssuming linearity of J0curve in the region between 5.0 V to 7.2 V, 
+				  5.0 V corresponds to A1 = 113 nm
+For Vbias = 5.0 V and J0-Null voltage = 7.2 V, 
+A = (163-113) nm = 50 nm = 50,000 pm
+
+Vibration amplitude, V = (X1-X2)/(X1+X2) * 50,000 pm
 
 */
 
@@ -310,7 +303,6 @@ int main()
 				for(ii = 1; ii <= averagescount; ii++)
 				{			
 					// write 'I' to Arduino - I for in phase
-					//write(fd, "II", sizeof("II")); // two Is
 					write(fd, "I", sizeof("I"));
 					ret = 0;
 					// save one image to Mat m
@@ -350,7 +342,6 @@ int main()
 					} // end of if ret == 1 block 
 					
 					// write 'O' to Arduino - O for out of phase
-					// write(fd, "OO", sizeof("OO")); // two Os
 					write(fd, "O", sizeof("O"));
 
 					ret = 0;
@@ -437,7 +428,6 @@ int main()
 				} // end of if ret == 1 block 
 
 				// write 'O' to Arduino - O for out of phase
-				//write(fd, "OO", sizeof("OO"));  // two Os
 				write(fd, "O", sizeof("O"));
 			
 				ret = 0;
@@ -518,7 +508,7 @@ int main()
 			bscandisp.convertTo(bscandisp, CV_8UC1, 255.0);
 			applyColorMap(bscandisp, cmagI_X, COLORMAP_JET);
 			if (ROIflag == true)	
-				rectangle(cmagI_X,ROItopleft,ROIbottright,Scalar(0,255,0),1, LINE_8);
+				rectangle(cmagI_X,ROItopleft,ROIbottright,Scalar(0,0,255),1, LINE_8);
 			imshow("Live", cmagI_X);
 
 			jdiff = (X1 + X2 - 2*B); // sum
